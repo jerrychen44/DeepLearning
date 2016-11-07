@@ -135,22 +135,109 @@ def sop_example3_matrix():
      [ 46.  68.]] 3x2
      '''
 
+    return 0
+
+def gradient_example1():
+    x = T.scalar('x')
+    y = x**2
+    g= T.grad(y,x) # do the dy/dx. y should be a scalar
 
 
+    f = theano.function([x],y)
+    f_prime = theano.function([x],g)
+
+    print(f(-2))
+    '''4.0'''
+    print(f_prime(-2))
+    '''-4.0'''
+
+    return 0
+
+def gradient_example2():
+    #########################
+    # Step1, Define input variable
+    #########################
+    x1 = T.scalar()
+    x2 = T.scalar()
+
+    ###################
+    # Step2: define output variables
+    ###################
+    y =x1 * x2
+    g = T.grad(y, [x1,x2]) # do the dy/dx. y should be a scalar
+    # g will get a list, and first one is the result of dy/dx1, second one
+    # is dy/dx2, in this case which means g = [x2,x1]
+
+
+    f = theano.function([x1, x2], y)
+    f_prime = theano.function([x1, x2], g)
+
+    print(f(2,4))
+    '''8.0'''
+    print(f_prime(2,4))
+    '''[array(4.0), array(2.0)]'''
 
     return 0
 
 
+
+
+def gradient_example3():
+    A = T.matrix()
+    B = T.matrix()
+
+
+    #       a1  a2           b1 b2
+    #   A = a3  a4     ,   B=b3 b4
+    #   2x2                 2x2
+    #
+    #   C=  a1b1 a2b2
+    #       a3b3 a4b4   2x2
+    C = A * B
+
+    #
+    #   D= a1b1+a2b2+a3b3+a4b4
+    #
+    D = T.sum(C)
+
+    #note: the first parameter of grad(,), must be a scalar, so you can use D
+    # but can not put C
+    g = T.grad(D,A)
+    # D, A are all matrix, so g is a matrix too.
+    # use the element A to di D,
+    #
+    #   g= |dD/da1 dD/da2| =|b1 b2|
+    #      |dD/da3 dD/da4|  |b3 b4|
+    #
+
+    y_prime = theano.function([A, B], g)
+
+
+
+    A = [[1,2],[3,4]]
+    B = [[2,4],[6,8]]
+    print( y_prime(A, B))
+    '''
+    [[ 2.  4.]
+     [ 6.  8.]]
+     '''
+    return 0
+
 def main():
 
-    #playaround()
+    playaround()
 
-    #sop_example1()
+    sop_example1()
 
-    #sop_example2()
+    sop_example2()
 
     sop_example3_matrix()
 
+    gradient_example1()
+
+    gradient_example2()
+
+    gradient_example3()
 
 
     return 0
