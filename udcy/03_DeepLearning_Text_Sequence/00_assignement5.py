@@ -148,8 +148,7 @@ def skip_gram_model(data,reverse_dictionary):
       # We use the cosine distance:
       norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
       normalized_embeddings = embeddings / norm
-      valid_embeddings = tf.nn.embedding_lookup(
-        normalized_embeddings, valid_dataset)
+      valid_embeddings = tf.nn.embedding_lookup(normalized_embeddings, valid_dataset)
       similarity = tf.matmul(valid_embeddings, tf.transpose(normalized_embeddings))
 
 
@@ -160,8 +159,7 @@ def skip_gram_model(data,reverse_dictionary):
       print('Initialized')
       average_loss = 0
       for step in range(num_steps):
-        batch_data, batch_labels = generate_batch(
-          batch_size, num_skips, skip_window,data)
+        batch_data, batch_labels = generate_batch(batch_size, num_skips, skip_window,data)
         feed_dict = {train_dataset : batch_data, train_labels : batch_labels}
         _, l = session.run([optimizer, loss], feed_dict=feed_dict)
         average_loss += l
@@ -416,6 +414,48 @@ def skip_gram_model(data,reverse_dictionary):
     Nearest to may: can, could, should, might, would, must, will, cannot,
     '''
 
+
+    #This is what an embedding looks like:
+    print(final_embeddings[0],len(final_embeddings))
+    # All the values are abstract, there is practical meaning of the them. Moreover,
+    # the final embeddings are normalized as you can see here:
+    '''
+    [ 0.09341599 -0.14042886 -0.07819284 -0.09250837 -0.01640968 -0.04263808
+      0.09015562 -0.08980133 -0.0233397  -0.03180674  0.06889749 -0.01027224
+      0.00900663 -0.04924826  0.18631902  0.1087643  -0.22626635 -0.06383247
+     -0.07610254 -0.04067367 -0.06256497  0.07132345  0.139667    0.1359783
+      0.01411107 -0.00656723  0.00712792 -0.03655377 -0.11955068  0.075135
+      0.22917432  0.01695052 -0.05237205  0.18642162  0.01811995 -0.11519508
+      0.01767583  0.0041279  -0.05856417 -0.08705174 -0.09126981 -0.04165866
+     -0.07568732 -0.14409058 -0.01382122  0.1049132  -0.08867542  0.02178659
+      0.06161967  0.02592648  0.10297526  0.03461177 -0.08078008  0.0752489
+     -0.10834466 -0.0656555   0.04118867 -0.01098287  0.04960652 -0.08426549
+     -0.04414825  0.18455376  0.02113118  0.1213237  -0.14905845  0.11343436
+      0.06937777  0.03483068 -0.09095778  0.14806637 -0.03143674  0.07772982
+     -0.0337519  -0.16569392 -0.03895564  0.04245298  0.04648942 -0.0064119
+      0.08288375  0.00136594  0.11916817  0.068687    0.05781886  0.01035208
+     -0.08542589 -0.16436793 -0.06840347 -0.01917173  0.15041684  0.08239542
+     -0.06053361  0.01218658 -0.10909181 -0.023924   -0.08930953 -0.12447044
+      0.02289473  0.01498208 -0.1435667   0.06104149  0.02957907  0.09265102
+     -0.05235555 -0.08612821 -0.00586708 -0.13363071 -0.04364103  0.03458537
+     -0.00955866 -0.06789755  0.04632098 -0.0386214  -0.10128922 -0.26140654
+     -0.0193422   0.01608096  0.14071448 -0.03010085  0.01884446  0.01612899
+     -0.00336174  0.10878568  0.17403337 -0.0299388   0.0268454  -0.03780577
+     -0.05892913 -0.00211533] , 50000
+      '''
+
+
+    ## plot out the word map
+    num_points = 400
+    # dimention change to 2 for plotting.
+    tsne = TSNE(perplexity=30, n_components=2, init='pca', n_iter=5000)
+    two_d_embeddings = tsne.fit_transform(final_embeddings[1:num_points+1, :])
+
+    # plot out, T-SNE will keep the distance structure for the data from high dimention
+    words = [reverse_dictionary[i] for i in range(1, num_points+1)]
+    plot(two_d_embeddings, words)
+
+
     return final_embeddings
 
 
@@ -463,6 +503,361 @@ def quick_small_test():
 
     return 0
 
+
+
+#################
+# Model 2 : Word2Vec model called CBOW (Continuous Bag of Words)
+#################
+def generate_batch_Word2Vec(batch_size, bag_window,data):
+  global data_index
+  span = 2 * bag_window + 1 # [ bag_window target bag_window ]
+  batch = np.ndarray(shape=(batch_size, span - 1), dtype=np.int32)
+  labels = np.ndarray(shape=(batch_size, 1), dtype=np.int32)
+  buffer = collections.deque(maxlen=span)
+  for _ in range(span):
+    buffer.append(data[data_index])
+    data_index = (data_index + 1) % len(data)
+  for i in range(batch_size):
+    # just for testing
+    buffer_list = list(buffer)
+    labels[i, 0] = buffer_list.pop(bag_window)
+    batch[i] = buffer_list
+    # iterate to the next buffer
+    buffer.append(data[data_index])
+    data_index = (data_index + 1) % len(data)
+  return batch, labels
+
+def plot_word2vec(embeddings, labels):
+  assert embeddings.shape[0] >= len(labels), 'More labels than embeddings'
+  pylab.figure(figsize=(15,15))  # in inches
+  for i, label in enumerate(labels):
+    x, y = embeddings[i,:]
+    pylab.scatter(x, y)
+    pylab.annotate(label, xy=(x, y), xytext=(5, 2), textcoords='offset points',
+                   ha='right', va='bottom')
+  pylab.show()
+
+def word2vec_model(data,reverse_dictionary):
+    # Note the instruction change on the loss function, with reduce_sum to sum the word vectors in the context:
+    batch_size = 128
+    embedding_size = 128 # Dimension of the embedding vector.
+    ###skip_window = 1 # How many words to consider left and right.
+    ###num_skips = 2 # How many times to reuse an input to generate a label.
+    bag_window = 2 # How many words to consider left and right.
+    # We pick a random validation set to sample nearest neighbors. here we limit the
+    # validation samples to the words that have a low numeric ID, which by
+    # construction are also the most frequent.
+    valid_size = 16 # Random set of words to evaluate similarity on.
+    valid_window = 100 # Only pick dev samples in the head of the distribution.
+    valid_examples = np.array(random.sample(range(valid_window), valid_size))
+    num_sampled = 64 # Number of negative examples to sample.
+
+    graph = tf.Graph()
+
+    with graph.as_default(), tf.device('/cpu:0'):
+
+      # Input data.
+      train_dataset = tf.placeholder(tf.int32, shape=[batch_size, bag_window * 2])
+      train_labels = tf.placeholder(tf.int32, shape=[batch_size, 1])
+      valid_dataset = tf.constant(valid_examples, dtype=tf.int32)
+
+      # Variables.
+      embeddings = tf.Variable(
+        tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
+      softmax_weights = tf.Variable(
+        tf.truncated_normal([vocabulary_size, embedding_size],
+                             stddev=1.0 / math.sqrt(embedding_size)))
+      softmax_biases = tf.Variable(tf.zeros([vocabulary_size]))
+
+      # Model.
+      # Look up embeddings for inputs.
+      embeds = tf.nn.embedding_lookup(embeddings, train_dataset)
+      # Compute the softmax loss, using a sample of the negative labels each time.
+      loss = tf.reduce_mean(
+        tf.nn.sampled_softmax_loss(softmax_weights, softmax_biases, tf.reduce_sum(embeds, 1),
+                                   train_labels, num_sampled, vocabulary_size))
+
+      # Optimizer.
+      optimizer = tf.train.AdagradOptimizer(1.0).minimize(loss)
+
+      # Compute the similarity between minibatch examples and all embeddings.
+      # We use the cosine distance:
+      norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
+      normalized_embeddings = embeddings / norm
+      valid_embeddings = tf.nn.embedding_lookup(
+        normalized_embeddings, valid_dataset)
+      similarity = tf.matmul(valid_embeddings, tf.transpose(normalized_embeddings))
+
+
+
+    num_steps = 100001
+
+    with tf.Session(graph=graph) as session:
+      tf.initialize_all_variables().run()
+      print('Initialized')
+      average_loss = 0
+      for step in range(num_steps):
+        batch_data, batch_labels = generate_batch_Word2Vec(batch_size, bag_window,data)
+        feed_dict = {train_dataset : batch_data, train_labels : batch_labels}
+        _, l = session.run([optimizer, loss], feed_dict=feed_dict)
+        average_loss += l
+        if step % 2000 == 0:
+          if step > 0:
+            average_loss = average_loss / 2000
+          # The average loss is an estimate of the loss over the last 2000 batches.
+          print('Average loss at step %d: %f' % (step, average_loss))
+          average_loss = 0
+        # note that this is expensive (~20% slowdown if computed every 500 steps)
+        if step % 10000 == 0:
+          sim = similarity.eval()
+          for i in range(valid_size):
+            valid_word = reverse_dictionary[valid_examples[i]]
+            top_k = 8 # number of nearest neighbors
+            nearest = (-sim[i, :]).argsort()[1:top_k+1]
+            log = 'Nearest to %s:' % valid_word
+            for k in range(top_k):
+              close_word = reverse_dictionary[nearest[k]]
+              log = '%s %s,' % (log, close_word)
+            print(log)
+      final_embeddings = normalized_embeddings.eval()
+
+        # plot it out
+    num_points = 400
+
+    tsne = TSNE(perplexity=30, n_components=2, init='pca', n_iter=5000)
+    two_d_embeddings = tsne.fit_transform(final_embeddings[1:num_points+1, :])
+    words = [reverse_dictionary[i] for i in range(1, num_points+1)]
+    plot_word2vec(two_d_embeddings, words)
+    '''
+    Average loss at step 0: 8.017719
+    Nearest to when: liberate, pentecostals, walken, practicable, simultaneous, soloists, furigana, aldebaran,
+    Nearest to years: flattery, mockingbird, scandalous, anchorage, afer, sentenced, laszlo, kumamoto,
+    Nearest to known: imitative, xxiv, fantagraphics, tunis, venerated, grand, dani, bruce,
+    Nearest to would: corwin, natufian, behold, azul, filking, superorder, zoo, meant,
+    Nearest to system: ma, rounding, candidiasis, encampments, slippage, flame, crist, oak,
+    Nearest to eight: constrain, glycol, supplements, scantily, nonviolent, precepts, galbraith, qaddafi,
+    Nearest to most: fellini, wreckin, sixties, mahavira, domains, fern, waldheim, yun,
+    Nearest to the: alienating, syndromes, scottsdale, highlanders, fargo, esther, cleavage, horizontal,
+    Nearest to after: mannerisms, algardi, jdk, swampy, shostakovich, demesne, prefaces, hurry,
+    Nearest to will: regeneration, forum, cards, preyed, reportedly, broadleaf, basquiat, highlights,
+    Nearest to than: xiii, trigonometry, wwf, sle, averroes, thatcher, filename, statesman,
+    Nearest to b: andrade, lazarus, omnium, deoxygenated, satirised, castro, thalberg, lac,
+    Nearest to people: jaian, expires, ene, outset, ccr, polisario, msi, battering,
+    Nearest to states: consults, simulator, diacritic, pip, siam, covenants, visconti, roussimoff,
+    Nearest to five: upwards, spate, belvedere, reinhold, wilson, hydrology, unauthorized, gelre,
+    Nearest to often: heaney, timeline, forti, honorum, slippage, bretton, residuals, cdg,
+    Average loss at step 2000: 9.975011
+    Average loss at step 4000: 5.374734
+    Average loss at step 6000: 4.306586
+    Average loss at step 8000: 3.941619
+    Average loss at step 10000: 3.797336
+    Nearest to when: since, where, isbn, because, hedonistic, stairway, mak, but,
+    Nearest to years: year, time, cartoons, indulgent, antiquarian, amicus, doris, people,
+    Nearest to known: used, glaucus, such, herrmann, called, meps, bruce, far,
+    Nearest to would: may, will, can, could, should, to, must, might,
+    Nearest to system: zagros, propane, mvs, dh, soups, ryaku, lehmann, slippage,
+    Nearest to eight: seven, nine, five, six, four, millennium, zero, ppm,
+    Nearest to most: more, adventure, publications, games, ambient, commodore, algorithmic, adelaide,
+    Nearest to the: its, another, their, feng, our, an, oyly, calais,
+    Nearest to after: before, demesne, until, pejoratively, aconcagua, from, nutrition, glyphs,
+    Nearest to will: would, can, may, could, to, must, cannot, should,
+    Nearest to than: or, clary, while, much, padre, bedding, humanist, towards,
+    Nearest to b: d, soliloquy, standard, knitted, ashby, warlike, scipio, deterministic,
+    Nearest to people: men, branko, outset, weinberg, gba, heresies, those, choice,
+    Nearest to states: kingdom, simulator, mafiosi, preeminent, livingstone, avengers, picatinny, sufficed,
+    Nearest to five: four, six, eight, zero, seven, xerxes, degenerated, stalingrad,
+    Nearest to often: sometimes, also, slept, enjoyable, commonly, fittingly, generally, still,
+    Average loss at step 12000: 3.781352
+    Average loss at step 14000: 3.882452
+    Average loss at step 16000: 3.848098
+    Average loss at step 18000: 3.672908
+    Average loss at step 20000: 3.528532
+    Nearest to when: if, where, before, because, while, as, that, though,
+    Nearest to years: decades, year, days, etext, amicus, antiquarian, pentateuch, cartoons,
+    Nearest to known: used, regarded, such, called, referred, considered, seen, rationalists,
+    Nearest to would: could, may, will, must, can, should, might, does,
+    Nearest to system: systems, roadster, westview, introduction, rivi, agricultural, conses, assure,
+    Nearest to eight: seven, nine, six, five, four, three, zero, memorize,
+    Nearest to most: more, some, dozens, borax, very, camillo, among, polypeptide,
+    Nearest to the: a, its, their, this, any, an, his, each,
+    Nearest to after: before, during, demesne, piron, fyrom, against, neurotoxicity, for,
+    Nearest to will: could, would, can, must, may, should, might, cannot,
+    Nearest to than: seafloor, jingles, humanist, hospitality, misdemeanors, stampede, jh, but,
+    Nearest to b: adelaide, magnitude, mac, ambient, actions, vehicles, cars, armored,
+    Nearest to people: publications, kolmogorov, cars, ip, athena, armored, vehicles, algorithmic,
+    Nearest to states: kingdom, nations, simulator, preeminent, spinoza, mafiosi, ornamental, burkinabe,
+    Nearest to five: seven, six, eight, four, three, zero, nine, two,
+    Nearest to often: sometimes, generally, commonly, usually, also, still, frequently, slept,
+    Average loss at step 22000: 4.089324
+    Average loss at step 24000: 3.778891
+    Average loss at step 26000: 3.495611
+    Average loss at step 28000: 3.473880
+    Average loss at step 30000: 3.407470
+    Nearest to when: because, if, where, though, xers, before, however, after,
+    Nearest to years: days, decades, months, weeks, year, times, etext, marrying,
+    Nearest to known: referred, seen, such, described, used, possible, called, considered,
+    Nearest to would: could, will, may, might, should, must, can, did,
+    Nearest to system: systems, sleek, morphology, westview, stave, wulf, network, numidia,
+    Nearest to eight: seven, nine, six, four, zero, abundance, minkowski, mesogens,
+    Nearest to most: many, some, more, montesquieu, malayan, borax, best, gunboats,
+    Nearest to the: a, their, his, its, our, this, an, her,
+    Nearest to after: before, during, since, piron, through, against, keene, despite,
+    Nearest to will: could, would, can, may, must, should, might, cannot,
+    Nearest to than: intercontinental, or, but, myers, recently, deepen, seafloor, procedural,
+    Nearest to b: five, conceivably, d, kenny, montferrat, plissken, cb, gv,
+    Nearest to people: men, them, players, others, ismaili, women, tunnelling, gravely,
+    Nearest to states: kingdom, nations, simulator, ornamental, mafiosi, macrophages, preeminent, flavor,
+    Nearest to five: six, games, b, seven, total, p, atom, heracleidae,
+    Nearest to often: sometimes, commonly, usually, generally, frequently, widely, still, also,
+    Average loss at step 32000: 3.115936
+    Average loss at step 34000: 3.294281
+    Average loss at step 36000: 3.318828
+    Average loss at step 38000: 3.234786
+    Average loss at step 40000: 3.261279
+    Nearest to when: where, because, if, before, until, during, by, through,
+    Nearest to years: days, months, decades, year, weeks, times, etext, centuries,
+    Nearest to known: referred, described, seen, used, defined, regarded, cleese, classified,
+    Nearest to would: could, will, should, might, may, must, can, did,
+    Nearest to system: systems, westview, sleek, arrakis, stave, rabban, process, program,
+    Nearest to eight: ruled, armored, ambient, adelaide, key, afrikaner, ambients, vehicles,
+    Nearest to most: more, less, best, borax, some, leper, many, baikonur,
+    Nearest to the: its, a, their, any, hurts, this, every, these,
+    Nearest to after: before, during, hel, despite, ietf, when, piron, hwang,
+    Nearest to will: would, should, could, must, can, may, might, does,
+    Nearest to than: but, much, resembles, intercontinental, seafloor, deepen, or, beltway,
+    Nearest to b: c, d, indeterminate, j, letter, regnal, micrometre, bryozoans,
+    Nearest to people: men, players, christians, speakers, them, women, members, children,
+    Nearest to states: kingdom, nations, await, commander, countries, ornamental, relatives, argued,
+    Nearest to five: six, seven, three, four, nine, two, zero, errant,
+    Nearest to often: sometimes, commonly, usually, frequently, generally, now, still, hybrids,
+    Average loss at step 42000: 3.326515
+    Average loss at step 44000: 3.214573
+    Average loss at step 46000: 3.237844
+    Average loss at step 48000: 3.103976
+    Average loss at step 50000: 3.126129
+    Nearest to when: where, until, because, though, since, before, during, if,
+    Nearest to years: months, decades, days, year, centuries, weeks, hours, times,
+    Nearest to known: referred, such, regarded, described, used, seen, defined, well,
+    Nearest to would: could, will, should, might, can, may, must, cannot,
+    Nearest to system: systems, arrakis, xxiii, hallmarks, sleek, slippage, garonne, recommended,
+    Nearest to eight: nine, seven, six, five, four, three, two, zero,
+    Nearest to most: many, more, especially, borax, some, best, all, greatest,
+    Nearest to the: its, their, his, a, an, our, another, this,
+    Nearest to after: before, during, when, for, since, until, without, following,
+    Nearest to will: would, should, can, may, might, could, must, cannot,
+    Nearest to than: or, but, intercontinental, and, while, beltway, trotskyists, burr,
+    Nearest to b: d, invert, brownian, deterministic, xu, bafta, avowed, lutes,
+    Nearest to people: players, men, children, individuals, those, speakers, countries, fans,
+    Nearest to states: kingdom, nations, gallantry, huntley, articulate, simulator, urgent, logistic,
+    Nearest to five: four, six, three, eight, seven, two, zero, nh,
+    Nearest to often: sometimes, usually, commonly, frequently, generally, still, also, typically,
+    Average loss at step 52000: 3.185372
+    Average loss at step 54000: 3.148347
+    Average loss at step 56000: 2.978250
+    Average loss at step 58000: 3.068580
+    Average loss at step 60000: 3.093045
+    Nearest to when: before, if, where, because, until, after, throughout, then,
+    Nearest to years: months, decades, days, centuries, year, weeks, hours, times,
+    Nearest to known: referred, regarded, described, defined, used, considered, opposed, seen,
+    Nearest to would: will, could, might, should, may, can, did, cannot,
+    Nearest to system: systems, capture, network, archipelago, practice, ancestry, base, nucleus,
+    Nearest to eight: nine, seven, six, five, four, three, zero, two,
+    Nearest to most: more, particularly, especially, best, some, many, earliest, all,
+    Nearest to the: its, a, an, their, his, our, any, another,
+    Nearest to after: before, during, following, despite, when, hel, without, until,
+    Nearest to will: would, could, can, should, might, may, cannot, did,
+    Nearest to than: or, but, and, turpin, resembles, intercontinental, trotskyists, equate,
+    Nearest to b: d, frac, x, c, j, r, theorists, cca,
+    Nearest to people: individuals, speakers, players, peoples, inhabitants, men, women, tunnelling,
+    Nearest to states: kingdom, nations, historians, provinces, relatives, ornamental, avengers, smallest,
+    Nearest to five: six, seven, four, eight, three, zero, nine, two,
+    Nearest to often: frequently, usually, commonly, sometimes, generally, widely, typically, still,
+    Average loss at step 62000: 3.050570
+    Average loss at step 64000: 2.965080
+    Average loss at step 66000: 2.984785
+    Average loss at step 68000: 3.028290
+    Average loss at step 70000: 3.052272
+    Nearest to when: if, before, where, because, while, although, since, after,
+    Nearest to years: decades, days, months, year, weeks, centuries, hours, etext,
+    Nearest to known: referred, defined, described, regarded, seen, classified, such, used,
+    Nearest to would: will, could, might, should, can, may, must, did,
+    Nearest to system: systems, disc, capybara, zagros, jb, garonne, flared, legislation,
+    Nearest to eight: seven, nine, five, six, three, two, four, zero,
+    Nearest to most: particularly, earliest, more, some, camillo, many, especially, all,
+    Nearest to the: a, its, their, his, an, each, meister, our,
+    Nearest to after: before, during, following, linda, tailed, despite, when, elephants,
+    Nearest to will: would, can, should, could, must, may, might, cannot,
+    Nearest to than: but, or, forcibly, turpin, seafloor, intercontinental, trotskyists, ginsberg,
+    Nearest to b: d, avowed, ambitious, voivodship, nur, reviewed, generalizing, emptive,
+    Nearest to people: individuals, women, men, players, children, person, speakers, christians,
+    Nearest to states: kingdom, nations, smallest, ornamental, provinces, preeminent, numeration, akademia,
+    Nearest to five: six, seven, zero, eight, three, diablo, dice, cromarty,
+    Nearest to often: sometimes, commonly, frequently, usually, generally, still, typically, widely,
+    Average loss at step 72000: 2.999703
+    Average loss at step 74000: 2.912392
+    Average loss at step 76000: 3.032987
+    Average loss at step 78000: 3.038939
+    Average loss at step 80000: 2.882483
+    Nearest to when: before, after, if, because, though, since, instead, where,
+    Nearest to years: decades, weeks, months, days, centuries, hours, times, minutes,
+    Nearest to known: referred, described, regarded, used, opposed, such, defined, served,
+    Nearest to would: could, will, might, should, must, can, may, did,
+    Nearest to system: systems, arrakis, horribilis, program, stave, position, prototype, baba,
+    Nearest to eight: nine, six, seven, five, zero, four, three, nominations,
+    Nearest to most: many, more, all, earliest, some, because, malayan, greatest,
+    Nearest to the: their, another, its, a, our, an, any, your,
+    Nearest to after: before, during, since, when, without, although, neolithic, frame,
+    Nearest to will: would, can, could, must, should, might, may, cannot,
+    Nearest to than: but, turpin, resembles, seafloor, plundered, hand, icosidodecahedron, takashi,
+    Nearest to b: dice, parc, adelaide, justinian, ambient, key, kolmogorov, frac,
+    Nearest to people: individuals, men, women, residents, person, players, children, students,
+    Nearest to states: kingdom, nations, provinces, powers, await, processes, state, nf,
+    Nearest to five: three, six, seven, four, eight, zero, conquistadores, two,
+    Nearest to often: sometimes, generally, commonly, usually, frequently, widely, typically, traditionally,
+    Average loss at step 82000: 2.967013
+    Average loss at step 84000: 2.924096
+    Average loss at step 86000: 2.963408
+    Average loss at step 88000: 2.972063
+    Average loss at step 90000: 2.860389
+    Nearest to when: where, if, because, while, after, by, although, here,
+    Nearest to years: decades, months, days, weeks, centuries, minutes, hours, year,
+    Nearest to known: referred, regarded, described, defined, used, seen, treated, named,
+    Nearest to would: will, might, could, may, must, should, can, did,
+    Nearest to system: systems, arrakis, rabban, westview, lully, numidia, process, method,
+    Nearest to eight: six, seven, nine, five, four, zero, three, bbn,
+    Nearest to most: many, more, especially, less, earliest, some, particularly, greatest,
+    Nearest to the: its, a, his, an, their, any, our, another,
+    Nearest to after: before, during, despite, when, without, afterwards, since, until,
+    Nearest to will: would, should, can, must, could, may, might, cannot,
+    Nearest to than: or, but, pollard, becoming, much, seafloor, trotskyists, allowing,
+    Nearest to b: key, theorists, frac, ovulation, ma, chemical, porta, serfs,
+    Nearest to people: men, individuals, children, residents, women, students, players, person,
+    Nearest to states: kingdom, nations, provinces, argued, countries, says, await, powers,
+    Nearest to five: four, three, six, seven, eight, zero, nine, eleven,
+    Nearest to often: sometimes, commonly, generally, usually, typically, traditionally, frequently, widely,
+    Average loss at step 92000: 2.928148
+    Average loss at step 94000: 2.920968
+    Average loss at step 96000: 2.737960
+    Average loss at step 98000: 2.489958
+    Average loss at step 100000: 2.731655
+    Nearest to when: if, because, though, where, although, while, before, which,
+    Nearest to years: decades, months, weeks, days, year, hours, centuries, minutes,
+    Nearest to known: referred, regarded, described, defined, seen, treated, used, noted,
+    Nearest to would: could, will, might, must, should, can, may, cannot,
+    Nearest to system: systems, arrakis, method, program, model, concept, garonne, rabban,
+    Nearest to eight: seven, five, six, nine, three, four, zero, june,
+    Nearest to most: best, more, particularly, earliest, greatest, especially, some, less,
+    Nearest to the: its, a, our, his, their, giger, any, this,
+    Nearest to after: before, despite, without, following, afterwards, for, within, thereafter,
+    Nearest to will: would, could, must, should, can, might, may, cannot,
+    Nearest to than: or, recently, but, seafloor, importantly, burr, allowing, becoming,
+    Nearest to b: d, imre, lutes, summarily, erlk, gonzalez, fca, yangon,
+    Nearest to people: men, jews, residents, individuals, americans, speakers, children, patients,
+    Nearest to states: kingdom, nations, provinces, huntley, await, urgent, kinsmen, understands,
+    Nearest to five: four, six, seven, three, eight, zero, two, nine,
+    Nearest to often: sometimes, generally, usually, commonly, still, typically, frequently, also,
+    '''
+    return 0
 #########################################################################
 def main():
     ####################
@@ -525,7 +920,7 @@ def main():
     'early', 'working', 'class', 'radicals', 'including', 'the', 'diggers', 'of', 'the', 'english',
     'revolution', 'and', 'the', 'sans', 'UNK', 'of', 'the', 'french', 'revolution', 'whilst', 'the', 'term']
     '''
-
+    #just take a look first
     for num_skips, skip_window in [(2, 1), (4, 2)]:
 
         batch, labels = generate_batch(batch_size=16, num_skips=num_skips, skip_window=skip_window,data=data)
@@ -573,54 +968,43 @@ def main():
 
 
     #################
-    # Model
+    # Model 1 : skip_gram_model
     #################
+
     # Train a skip-gram model.
-    final_embeddings=skip_gram_model(data,reverse_dictionary)
+    #skip_gram_model(data,reverse_dictionary)
 
 
 
-
-    #This is what an embedding looks like:
-    print(final_embeddings[0])
-    # All the values are abstract, there is practical meaning of the them. Moreover,
-    # the final embeddings are normalized as you can see here:
+    #################
+    # Model 2 : Word2Vec model called CBOW (Continuous Bag of Words)
+    #################
+    # take a look first
+    print('data:', [reverse_dictionary[di] for di in data[:16]])
     '''
-    [ 0.09341599 -0.14042886 -0.07819284 -0.09250837 -0.01640968 -0.04263808
-      0.09015562 -0.08980133 -0.0233397  -0.03180674  0.06889749 -0.01027224
-      0.00900663 -0.04924826  0.18631902  0.1087643  -0.22626635 -0.06383247
-     -0.07610254 -0.04067367 -0.06256497  0.07132345  0.139667    0.1359783
-      0.01411107 -0.00656723  0.00712792 -0.03655377 -0.11955068  0.075135
-      0.22917432  0.01695052 -0.05237205  0.18642162  0.01811995 -0.11519508
-      0.01767583  0.0041279  -0.05856417 -0.08705174 -0.09126981 -0.04165866
-     -0.07568732 -0.14409058 -0.01382122  0.1049132  -0.08867542  0.02178659
-      0.06161967  0.02592648  0.10297526  0.03461177 -0.08078008  0.0752489
-     -0.10834466 -0.0656555   0.04118867 -0.01098287  0.04960652 -0.08426549
-     -0.04414825  0.18455376  0.02113118  0.1213237  -0.14905845  0.11343436
-      0.06937777  0.03483068 -0.09095778  0.14806637 -0.03143674  0.07772982
-     -0.0337519  -0.16569392 -0.03895564  0.04245298  0.04648942 -0.0064119
-      0.08288375  0.00136594  0.11916817  0.068687    0.05781886  0.01035208
-     -0.08542589 -0.16436793 -0.06840347 -0.01917173  0.15041684  0.08239542
-     -0.06053361  0.01218658 -0.10909181 -0.023924   -0.08930953 -0.12447044
-      0.02289473  0.01498208 -0.1435667   0.06104149  0.02957907  0.09265102
-     -0.05235555 -0.08612821 -0.00586708 -0.13363071 -0.04364103  0.03458537
-     -0.00955866 -0.06789755  0.04632098 -0.0386214  -0.10128922 -0.26140654
-     -0.0193422   0.01608096  0.14071448 -0.03010085  0.01884446  0.01612899
-     -0.00336174  0.10878568  0.17403337 -0.0299388   0.0268454  -0.03780577
-     -0.05892913 -0.00211533]
-      '''
+    data: ['anarchism', 'originated', 'as', 'a', 'term', 'of', 'abuse', 'first', 'used', 'against', 'early', 'working', 'class', 'radicals', 'including', 'the']
+    '''
+    for bag_window in [1, 2]:
+      data_index = 0
+      # For the continuous bag of words, the train inputs are slightly different from the skip-gram:
+      batch, labels = generate_batch_Word2Vec(batch_size=4, bag_window=bag_window,data=data)
+      print('\nwith bag_window = %d:' % (bag_window))
+      print('    batch:', [[reverse_dictionary[w] for w in bi] for bi in batch])
+      print('    labels:', [reverse_dictionary[li] for li in labels.reshape(4)])
 
+    '''
+    with bag_window = 1:
+        batch: [['revolution', 'the'], ['and', 'sans'], ['the', 'UNK'], ['sans', 'of']]
+        labels: ['and', 'the', 'sans', 'UNK']
 
+    with bag_window = 2:
+        batch: [['french', 'revolution', 'the', 'term'], ['revolution', 'whilst', 'term', 'is'], ['whilst', 'the', 'is', 'still'], ['the', 'term', 'still', 'used']]
+        labels: ['whilst', 'the', 'term', 'is']
+    '''
 
-    num_points = 400
+    word2vec_model(data,reverse_dictionary)
 
-    tsne = TSNE(perplexity=30, n_components=2, init='pca', n_iter=5000)
-    two_d_embeddings = tsne.fit_transform(final_embeddings[1:num_points+1, :])
-
-    # plot out
-    words = [reverse_dictionary[i] for i in range(1, num_points+1)]
-    plot(two_d_embeddings, words)
-
+    # CBOW is better then skip-gram
 
     return 0
 
